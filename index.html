@@ -1,0 +1,364 @@
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Search, MapPin, Users, Info, X, Building2, TrendingUp, ArrowRight, Map as MapIcon, List } from 'lucide-react';
+
+// Daten
+const CITIES_DATA = [
+  { id: 1, name: "Berlin", state: "Berlin", population: 3645000, area: "891 km²", lat: 52.5200, lng: 13.4050, highlight: "Brandenburger Tor", description: "Die Hauptstadt und das kulturelle Herz Deutschlands, bekannt für ihre Kunstszene und Geschichte." },
+  { id: 2, name: "Hamburg", state: "Hamburg", population: 1841000, area: "755 km²", lat: 53.5511, lng: 9.9937, highlight: "Elbphilharmonie", description: "Deutschlands Tor zur Welt mit einem riesigen Hafen und der historischen Speicherstadt." },
+  { id: 3, name: "München", state: "Bayern", population: 1472000, area: "310 km²", lat: 48.1351, lng: 11.5820, highlight: "Marienplatz", description: "Bekannt für das Oktoberfest, High-Tech-Industrie und die Nähe zu den Alpen." },
+  { id: 4, name: "Köln", state: "Nordrhein-Westfalen", population: 1086000, area: "405 km²", lat: 50.9375, lng: 6.9603, highlight: "Kölner Dom", description: "Eine 2000 Jahre alte Stadt am Rhein, berühmt für ihren Dom und den Karneval." },
+  { id: 5, name: "Frankfurt am Main", state: "Hessen", population: 753000, area: "248 km²", lat: 50.1109, lng: 8.6821, highlight: "Skyline / Main Tower", description: "Das Finanzzentrum Kontinentaleuropas und Heimat der Europäischen Zentralbank." },
+  { id: 6, name: "Stuttgart", state: "Baden-Württemberg", population: 635000, area: "207 km²", lat: 48.7758, lng: 9.1829, highlight: "Mercedes-Benz Museum", description: "Das Herz der deutschen Automobilindustrie, umgeben von Weinbergen." },
+  { id: 7, name: "Düsseldorf", state: "Nordrhein-Westfalen", population: 619000, area: "217 km²", lat: 51.2277, lng: 6.7735, highlight: "Königsallee", description: "Mode- und Kunststadt, bekannt für ihre luxuriöse Einkaufsstraße und die Altstadt." },
+  { id: 8, name: "Leipzig", state: "Sachsen", population: 587000, area: "297 km²", lat: 51.3397, lng: 12.3731, highlight: "Völkerschlachtdenkmal", description: "Eine dynamische Stadt mit reicher musikalischer Tradition (Bach, Wagner)." },
+  { id: 9, name: "Dortmund", state: "Nordrhein-Westfalen", population: 588000, area: "280 km²", lat: 51.5136, lng: 7.4653, highlight: "Signal Iduna Park", description: "Einstiges Zentrum der Stahlindustrie, heute bekannt für Technologie und Fußball." },
+  { id: 10, name: "Essen", state: "Nordrhein-Westfalen", population: 583000, area: "210 km²", lat: 51.4556, lng: 7.0116, highlight: "Zeche Zollverein", description: "Kulturhauptstadt Europas 2010, bekannt für den Strukturwandel im Ruhrgebiet." },
+  { id: 11, name: "Bremen", state: "Bremen", population: 569000, area: "326 km²", lat: 53.0793, lng: 8.8017, highlight: "Bremer Stadtmusikanten", description: "Historische Hansestadt an der Weser mit maritimem Flair." },
+  { id: 12, name: "Dresden", state: "Sachsen", population: 556000, area: "328 km²", lat: 51.0504, lng: 13.7372, highlight: "Frauenkirche", description: "Auch 'Elbflorenz' genannt, berühmt für barocke Architektur und Kunstschätze." },
+  { id: 13, name: "Hannover", state: "Niedersachsen", population: 538000, area: "204 km²", lat: 52.3759, lng: 9.7320, highlight: "Herrenhäuser Gärten", description: "Bekannte Messestadt mit einem der wichtigsten Messegelände der Welt." },
+  { id: 14, name: "Nürnberg", state: "Bayern", population: 518000, area: "186 km²", lat: 49.4521, lng: 11.0767, highlight: "Kaiserburg", description: "Mittelalterliche Architektur, Christkindlesmarkt und reiche Geschichte." },
+  { id: 15, name: "Duisburg", state: "Nordrhein-Westfalen", population: 498000, area: "232 km²", lat: 51.4344, lng: 6.7623, highlight: "Landschaftspark Nord", description: "Besitzt den größten Binnenhafen der Welt." },
+];
+
+const formatNumber = (num) => {
+  return new Intl.NumberFormat('de-DE').format(num);
+};
+
+// --- Custom Leaflet Component (Vanilla JS Wrapper) ---
+// Dies ersetzt react-leaflet, um Kompilierfehler zu vermeiden
+const LeafletMap = ({ cities, onSelectCity }) => {
+  const mapContainerRef = useRef(null);
+  const mapInstanceRef = useRef(null);
+  const markersRef = useRef([]);
+  const [isLeafletLoaded, setIsLeafletLoaded] = useState(false);
+
+  // 1. Leaflet Ressourcen laden (Script & CSS)
+  useEffect(() => {
+    if (window.L) {
+      setIsLeafletLoaded(true);
+      return;
+    }
+
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(link);
+
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.async = true;
+    script.onload = () => setIsLeafletLoaded(true);
+    document.body.appendChild(script);
+
+    return () => {
+      // Cleanup optional, meistens wollen wir die Lib behalten
+    };
+  }, []);
+
+  // 2. Karte initialisieren
+  useEffect(() => {
+    if (isLeafletLoaded && mapContainerRef.current && !mapInstanceRef.current) {
+      const L = window.L;
+      
+      const map = L.map(mapContainerRef.current).setView([51.1657, 10.4515], 6);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      // Icon Fix
+      const DefaultIcon = L.icon({
+        iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+        iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+        shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+        iconSize: [25, 41],
+        iconAnchor: [12, 41],
+        popupAnchor: [1, -34],
+        shadowSize: [41, 41]
+      });
+      L.Marker.prototype.options.icon = DefaultIcon;
+
+      mapInstanceRef.current = map;
+    }
+  }, [isLeafletLoaded]);
+
+  // 3. Marker aktualisieren
+  useEffect(() => {
+    if (!mapInstanceRef.current || !window.L) return;
+
+    const map = mapInstanceRef.current;
+    const L = window.L;
+
+    // Alte Marker entfernen
+    markersRef.current.forEach(marker => marker.remove());
+    markersRef.current = [];
+
+    // Neue Marker hinzufügen
+    const featureGroup = L.featureGroup();
+    
+    cities.forEach(city => {
+      const marker = L.marker([city.lat, city.lng])
+        .bindPopup(`
+          <div style="text-align: center;">
+            <strong style="color: #4f46e5; text-transform: uppercase; font-size: 10px;">${city.state}</strong><br/>
+            <span style="font-size: 14px; font-weight: bold;">${city.name}</span><br/>
+            <button id="btn-${city.id}" style="margin-top: 8px; background: #0f172a; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;">Details</button>
+          </div>
+        `);
+      
+      marker.on('popupopen', () => {
+        const btn = document.getElementById(`btn-${city.id}`);
+        if (btn) {
+          btn.onclick = () => onSelectCity(city);
+        }
+      });
+
+      marker.addTo(map);
+      featureGroup.addLayer(marker);
+      markersRef.current.push(marker);
+    });
+
+    // Karte auf Marker zentrieren
+    if (cities.length > 0) {
+      map.fitBounds(featureGroup.getBounds().pad(0.1));
+    } else {
+      map.setView([51.1657, 10.4515], 6);
+    }
+
+  }, [cities, isLeafletLoaded, onSelectCity]);
+
+  // Resize Handler
+  useEffect(() => {
+    if(mapInstanceRef.current) {
+      mapInstanceRef.current.invalidateSize();
+    }
+  });
+
+  return <div ref={mapContainerRef} className="w-full h-full z-10" />;
+};
+
+
+export default function App() {
+  const [searchTerm, setSearchTerm] = useState("");
+  const [selectedCity, setSelectedCity] = useState(null);
+  const [viewMode, setViewMode] = useState("grid"); // "grid" or "map"
+
+  // Filter Logic
+  const filteredCities = useMemo(() => {
+    return CITIES_DATA.filter(city => 
+      city.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      city.state.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [searchTerm]);
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-indigo-100 selection:text-indigo-700">
+      
+      {/* Header Section */}
+      <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-800 text-white pb-24 relative overflow-hidden shadow-2xl">
+        {/* Abstract Shapes */}
+        <div className="absolute top-0 left-0 w-64 h-64 bg-white opacity-10 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2"></div>
+        <div className="absolute bottom-0 right-0 w-96 h-96 bg-purple-400 opacity-10 rounded-full blur-3xl translate-x-1/3 translate-y-1/3"></div>
+        
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 md:pt-16 relative z-10">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-8">
+            <div>
+              <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight mb-2">
+                Deutschland <span className="text-indigo-200">Entdecken</span>
+              </h1>
+              <p className="text-indigo-100 max-w-xl text-base md:text-lg">
+                Metropolen, Daten und Fakten in Echtzeit.
+              </p>
+            </div>
+            
+            {/* View Toggle */}
+            <div className="bg-white/10 backdrop-blur-md p-1 rounded-xl flex items-center border border-white/20 self-start md:self-center">
+              <button 
+                onClick={() => setViewMode('grid')}
+                className={`flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  viewMode === 'grid' 
+                    ? 'bg-white text-indigo-700 shadow-md' 
+                    : 'text-white hover:bg-white/10'
+                }`}
+              >
+                <List className="w-4 h-4 mr-2" />
+                Liste
+              </button>
+              <button 
+                onClick={() => setViewMode('map')}
+                className={`flex items-center px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                  viewMode === 'map' 
+                    ? 'bg-white text-indigo-700 shadow-md' 
+                    : 'text-white hover:bg-white/10'
+                }`}
+              >
+                <MapIcon className="w-4 h-4 mr-2" />
+                Karte
+              </button>
+            </div>
+          </div>
+
+          {/* Search Bar */}
+          <div className="relative max-w-xl">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <Search className="h-5 w-5 text-indigo-300" />
+            </div>
+            <input
+              type="text"
+              className="block w-full pl-11 pr-4 py-4 bg-white/10 border border-white/20 backdrop-blur-md rounded-2xl text-white placeholder-indigo-200 focus:outline-none focus:ring-2 focus:ring-white/50 focus:bg-white/20 transition-all shadow-lg"
+              placeholder="Stadt oder Bundesland suchen..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 -mt-16 pb-12 relative z-20">
+        
+        {/* Results Info */}
+        <div className="flex justify-between items-end mb-4 px-2">
+          <p className="text-sm font-medium text-slate-500 uppercase tracking-wider">
+            {filteredCities.length} {filteredCities.length === 1 ? 'Ergebnis' : 'Ergebnisse'} gefunden
+          </p>
+        </div>
+
+        {/* View Switcher: Grid vs Map */}
+        {viewMode === 'grid' ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {filteredCities.map((city) => (
+              <div 
+                key={city.id}
+                onClick={() => setSelectedCity(city)}
+                className="group bg-white rounded-2xl shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-pointer border border-slate-100 overflow-hidden flex flex-col"
+              >
+                <div className="h-2 w-full bg-gradient-to-r from-indigo-500 to-purple-500 transform origin-left scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
+                <div className="p-6 flex-1 flex flex-col">
+                  <div className="flex justify-between items-start mb-4">
+                    <div>
+                      <span className="inline-block px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-semibold rounded-md mb-2">
+                        {city.state}
+                      </span>
+                      <h3 className="text-2xl font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">
+                        {city.name}
+                      </h3>
+                    </div>
+                    <div className="p-2 bg-slate-50 rounded-full group-hover:bg-indigo-50 transition-colors">
+                      <ArrowRight className="w-5 h-5 text-slate-400 group-hover:text-indigo-600" />
+                    </div>
+                  </div>
+                  <p className="text-slate-500 text-sm line-clamp-2 mb-6 flex-1">
+                    {city.description}
+                  </p>
+                  <div className="flex items-center space-x-4 pt-4 border-t border-slate-100">
+                    <div className="flex items-center text-slate-600 text-sm">
+                      <Users className="w-4 h-4 mr-1.5 text-slate-400" />
+                      {formatNumber(city.population)}
+                    </div>
+                    <div className="flex items-center text-slate-600 text-sm">
+                      <Building2 className="w-4 h-4 mr-1.5 text-slate-400" />
+                      {city.area}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-slate-200 h-[600px] animate-in fade-in zoom-in duration-300 relative z-0">
+             <LeafletMap 
+               cities={filteredCities} 
+               onSelectCity={setSelectedCity} 
+             />
+          </div>
+        )}
+
+        {/* Empty State */}
+        {filteredCities.length === 0 && (
+          <div className="text-center py-20">
+            <div className="bg-slate-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Search className="w-10 h-10 text-slate-400" />
+            </div>
+            <h3 className="text-xl font-medium text-slate-900">Keine Stadt gefunden</h3>
+            <p className="text-slate-500 mt-2">Versuche es mit einem anderen Suchbegriff.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Modal / Detail Overlay */}
+      {selectedCity && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+          <div 
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" 
+            onClick={() => setSelectedCity(null)}
+          ></div>
+          
+          <div className="relative bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+            
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-8 text-white relative">
+              <button 
+                onClick={() => setSelectedCity(null)}
+                className="absolute top-4 right-4 p-2 bg-white/20 hover:bg-white/30 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5 text-white" />
+              </button>
+              
+              <h2 className="text-3xl md:text-4xl font-bold mb-2">{selectedCity.name}</h2>
+              <div className="flex items-center space-x-2 text-indigo-100">
+                <MapPin className="w-4 h-4" />
+                <span className="text-lg font-medium">{selectedCity.state}</span>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-center">
+                  <div className="text-slate-400 text-xs uppercase tracking-wide font-semibold mb-1">Bevölkerung</div>
+                  <div className="text-xl font-bold text-slate-800">{formatNumber(selectedCity.population)}</div>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-center">
+                  <div className="text-slate-400 text-xs uppercase tracking-wide font-semibold mb-1">Fläche</div>
+                  <div className="text-xl font-bold text-slate-800">{selectedCity.area}</div>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-center">
+                  <div className="text-slate-400 text-xs uppercase tracking-wide font-semibold mb-1">Highlight</div>
+                  <div className="text-xl font-bold text-indigo-600 truncate">{selectedCity.highlight}</div>
+                </div>
+              </div>
+
+              <div className="prose prose-slate max-w-none">
+                <h3 className="text-lg font-semibold text-slate-900 flex items-center mb-2">
+                  <Info className="w-5 h-5 mr-2 text-indigo-500" />
+                  Über die Stadt
+                </h3>
+                <p className="text-slate-600 leading-relaxed">
+                  {selectedCity.description}
+                  <br className="mb-4"/>
+                  {selectedCity.name} ist eines der wichtigsten urbanen Zentren in Deutschland. 
+                  Die Stadt bietet eine Mischung aus historischer Architektur, moderner Infrastruktur 
+                  und hoher Lebensqualität. Sie spielt eine zentrale Rolle in der Wirtschaft von {selectedCity.state}.
+                </p>
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-slate-100 flex justify-between items-center">
+                 <div className="flex items-center text-sm text-slate-400">
+                    <TrendingUp className="w-4 h-4 mr-2" />
+                    Datenstand: 2023
+                 </div>
+                 <button 
+                   onClick={() => setSelectedCity(null)}
+                   className="px-6 py-2 bg-slate-900 text-white rounded-lg font-medium hover:bg-slate-800 transition-colors"
+                 >
+                   Schließen
+                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
