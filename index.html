@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Search, MapPin, Users, Info, X, Building2, TrendingUp, ArrowRight, Map as MapIcon, List } from 'lucide-react';
+import { Search, MapPin, Users, Info, X, Building2, TrendingUp, ArrowRight, Map as MapIcon, List, Loader2 } from 'lucide-react';
 
 // Daten
 const CITIES_DATA = [
@@ -24,15 +24,14 @@ const formatNumber = (num) => {
   return new Intl.NumberFormat('de-DE').format(num);
 };
 
-// --- Custom Leaflet Component (Vanilla JS Wrapper) ---
-// Dies ersetzt react-leaflet, um Kompilierfehler zu vermeiden
+// --- Custom Leaflet Component (Verbesserte Version) ---
 const LeafletMap = ({ cities, onSelectCity }) => {
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef([]);
   const [isLeafletLoaded, setIsLeafletLoaded] = useState(false);
 
-  // 1. Leaflet Ressourcen laden (Script & CSS)
+  // 1. Leaflet Ressourcen laden (Nutze Cloudflare CDN für bessere Stabilität)
   useEffect(() => {
     if (window.L) {
       setIsLeafletLoaded(true);
@@ -41,17 +40,17 @@ const LeafletMap = ({ cities, onSelectCity }) => {
 
     const link = document.createElement('link');
     link.rel = 'stylesheet';
-    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    link.href = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';
     document.head.appendChild(link);
 
     const script = document.createElement('script');
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js';
     script.async = true;
     script.onload = () => setIsLeafletLoaded(true);
     document.body.appendChild(script);
 
     return () => {
-      // Cleanup optional, meistens wollen wir die Lib behalten
+      // Cleanup nicht nötig, da wir Library im Cache behalten wollen
     };
   }, []);
 
@@ -66,7 +65,7 @@ const LeafletMap = ({ cities, onSelectCity }) => {
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
 
-      // Icon Fix
+      // Icon Fix für Standard-Marker
       const DefaultIcon = L.icon({
         iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
         iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
@@ -79,10 +78,15 @@ const LeafletMap = ({ cities, onSelectCity }) => {
       L.Marker.prototype.options.icon = DefaultIcon;
 
       mapInstanceRef.current = map;
+
+      // WICHTIG: invalidateSize aufrufen, damit Leaflet die Containergröße nach dem Rendern korrekt erkennt
+      setTimeout(() => {
+        map.invalidateSize();
+      }, 200);
     }
   }, [isLeafletLoaded]);
 
-  // 3. Marker aktualisieren
+  // 3. Marker & Updates
   useEffect(() => {
     if (!mapInstanceRef.current || !window.L) return;
 
@@ -93,18 +97,20 @@ const LeafletMap = ({ cities, onSelectCity }) => {
     markersRef.current.forEach(marker => marker.remove());
     markersRef.current = [];
 
-    // Neue Marker hinzufügen
+    // Feature Group für Auto-Zoom
     const featureGroup = L.featureGroup();
     
     cities.forEach(city => {
       const marker = L.marker([city.lat, city.lng])
         .bindPopup(`
-          <div style="text-align: center;">
-            <strong style="color: #4f46e5; text-transform: uppercase; font-size: 10px;">${city.state}</strong><br/>
-            <span style="font-size: 14px; font-weight: bold;">${city.name}</span><br/>
-            <button id="btn-${city.id}" style="margin-top: 8px; background: #0f172a; color: white; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer; font-size: 11px;">Details</button>
+          <div style="text-align: center; font-family: sans-serif;">
+            <div style="color: #6366f1; text-transform: uppercase; font-size: 10px; font-weight: bold; margin-bottom: 2px;">${city.state}</div>
+            <div style="font-size: 15px; font-weight: 700; margin-bottom: 6px; color: #1e293b;">${city.name}</div>
+            <button id="btn-${city.id}" style="background: #0f172a; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: 500;">Details ansehen</button>
           </div>
-        `);
+        `, {
+          minWidth: 150
+        });
       
       marker.on('popupopen', () => {
         const btn = document.getElementById(`btn-${city.id}`);
@@ -118,23 +124,43 @@ const LeafletMap = ({ cities, onSelectCity }) => {
       markersRef.current.push(marker);
     });
 
-    // Karte auf Marker zentrieren
-    if (cities.length > 0) {
-      map.fitBounds(featureGroup.getBounds().pad(0.1));
-    } else {
-      map.setView([51.1657, 10.4515], 6);
-    }
+    // Karte zentrieren (verzögert, um Render-Probleme zu vermeiden)
+    setTimeout(() => {
+        if (cities.length > 0) {
+            map.fitBounds(featureGroup.getBounds().pad(0.1));
+        } else {
+            map.setView([51.1657, 10.4515], 6);
+        }
+    }, 100);
 
   }, [cities, isLeafletLoaded, onSelectCity]);
 
-  // Resize Handler
+  // Resize Observer für Responsivität
   useEffect(() => {
-    if(mapInstanceRef.current) {
-      mapInstanceRef.current.invalidateSize();
-    }
-  });
+     if(!mapContainerRef.current || !mapInstanceRef.current) return;
+     
+     const resizeObserver = new ResizeObserver(() => {
+         if(mapInstanceRef.current) {
+             mapInstanceRef.current.invalidateSize();
+         }
+     });
+     resizeObserver.observe(mapContainerRef.current);
+     
+     return () => resizeObserver.disconnect();
+  }, [isLeafletLoaded]);
 
-  return <div ref={mapContainerRef} className="w-full h-full z-10" />;
+  if (!isLeafletLoaded) {
+      return (
+          <div className="w-full h-full flex items-center justify-center bg-slate-50">
+              <div className="flex flex-col items-center text-slate-400 animate-pulse">
+                  <Loader2 className="w-8 h-8 mb-2 animate-spin text-indigo-500" />
+                  <span className="text-sm font-medium">Karte wird geladen...</span>
+              </div>
+          </div>
+      );
+  }
+
+  return <div ref={mapContainerRef} className="w-full h-full z-10 isolate" />;
 };
 
 
